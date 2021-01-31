@@ -231,10 +231,20 @@ mod_ngb <- glm.nb(Topten ~ reg + loc + time + loc*time +
 mod_zip <- zeroinfl(Topten ~ reg + loc + time + loc*time + 
                         SampleHr + Relief + SubstrateDensity + BiotaDensity + 
                         StationDepth + Temp | SampleHr + Temp, data=dat)
-AIC(mod_gau)
+
+# note AIC doen's make sense for log2 + 1 model because of change of 
+# response variable
 AIC(mod_poi)
 AIC(mod_ngb)
 AIC(mod_zip)
+
+pseudo_r2(mod_gau)
+pseudo_r2(mod_poi)
+pseudo_r2(mod_ngb)
+pseudo_r2(mod_zip)
+
+
+
 
 # it appears the gaussian model with log2 + 1 transform is best fit according to AIC
 par(mfrow=c(2,2))
@@ -252,7 +262,6 @@ par(mfrow=c(3,3))
 termplot(mod_gau, partial.resid = T, se = T)
 
 summary(mod_gau)
-pseudo_r2(mod_gau)
 Anova(mod_gau, type = 3)
 
 ## simplify approach further
@@ -289,13 +298,21 @@ mod_poi <- glm(abu ~ reg + loc + time + loc*time +
 mod_ngb <- glm.nb(abu ~ reg + loc + time + loc*time + 
                         SampleHr + Relief + SubstrateDensity + BiotaDensity + 
                         StationDepth + Temp, data=dat)
+mod_ngb <- glm(abu ~ reg + loc + time + loc*time + 
+                     SampleHr + Relief + SubstrateDensity + BiotaDensity + 
+                     StationDepth + Temp, family = negative.binomial, data=dat)
 mod_zip <- zeroinfl(abu ~ reg + loc + time + loc*time + 
                         SampleHr + Relief + SubstrateDensity + BiotaDensity + 
                         StationDepth + Temp | SampleHr + Temp, data=dat)
-AIC(mod_gau)
 AIC(mod_poi)
 AIC(mod_ngb)
 AIC(mod_zip)
+
+pseudo_r2(mod_gau)
+pseudo_r2(mod_poi)
+pseudo_r2(mod_ngb)
+pseudo_r2(mod_zip)
+
 
 # PO plot
 par(mfrow=c(1,1))
