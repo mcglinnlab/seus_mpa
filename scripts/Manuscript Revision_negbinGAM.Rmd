@@ -1,0 +1,971 @@
+---
+title: "Manuscript Revision_negbinGAM"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+```{r}
+##Edisto Abundance
+
+
+library(readr)
+#GAM######### 
+library(mgcv)
+
+#GAMSignificance###
+library(itsadug)
+
+##for summarizing data
+library(doBy)
+
+######for testing multicollinearity - use this for test as well
+library(fmsb)
+library(Hmisc)
+
+
+###revlaue
+library(plyr)
+library(ggplot2)
+library(visreg)
+
+##power test to determine sample size needed for a small effect size, with eight coefficents
+## and sig level set to 0.05.  n= V+U+1
+pwr::pwr.f2.test(u=8, f2 = 0.1, sig.level = 0.05, power = 0.8)
+
+
+Edisto_Abundance <- read_csv("Chapter 3/Edisto_Abundance.csv")
+Edisto_Abundance$ManagedArea <- 
+  factor(Edisto_Abundance$ManagedArea, levels = c("ED","EDCOMP", "ED_PRE"))
+Edisto_Abundance$ManagedArea <- 
+  revalue(Edisto_Abundance$ManagedArea, c("ED"="Managed", "EDCOMP"="Unmanaged", "ED_PRE" = "Unmanaged"))
+Edisto_Abundance$Relief <- ordered(Edisto_Abundance$Relief, levels = 
+                                   c("Low", "Moderate", "High"))
+Edisto_Abundance$Relief <- revalue(Edisto_Abundance$Relief, 
+                             c("Low"=1, "Moderate" = 2, "High" = 3))
+factor(Edisto_Abundance$Relief)
+Edisto_Abundance$Relief <- as.numeric(Edisto_Abundance$Relief)
+
+
+Edisto_Abundance$Period <- "Nothing"
+Edisto_Abundance$Period[(Edisto_Abundance$Year > 2015)] <- "2016-2018"
+
+Edisto_Abundance$Period[(Edisto_Abundance$Year<2016)&
+                                   (Edisto_Abundance$Year>2012)] <- "2013-2015"
+
+Edisto_Abundance$Period[(Edisto_Abundance$Year<2013)&
+                                   (Edisto_Abundance$Year>2009)] <- "2010-2012"
+
+Edisto_Abundance$Period[(Edisto_Abundance$Year>2005)&
+                                   (Edisto_Abundance$Year<2009)] <- "2006-2008"
+
+Edisto_Abundance$Period[(Edisto_Abundance$Year<2006)&
+                                   (Edisto_Abundance$Year>2002)] <- "2003-2005"
+
+Edisto_Abundance$Period[(Edisto_Abundance$Year<2003)] <- "2000-2002"
+
+Edisto_Abundance <- Edisto_Abundance[Edisto_Abundance$Period!="Nothing",]
+
+Edisto_Abundance$Period <- ordered(Edisto_Abundance$Period, levels = 
+                                      c("2000-2002", "2003-2005", "2006-2008", 
+                                        "2010-2012", "2013-2015", "2016-2018"))
+
+Edisto_Abundance$Topten <- rowSums(Edisto_Abundance[,c(27, 30, 34, 42, 48,
+                                                       55, 61, 63, 72, 76)])
+
+
+ED_AB_bin <- na.exclude(Edisto_Abundance[,c(3,10,12:13,16,17,18,21,23,24,80:82,84,85)])
+
+
+
+gam_ED_AB_bin_gaus<-gam(Topten~ Period+ManagedAreaBar+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=gaussian,data=ED_AB_bin)
+gam_ED_AB_bin_pois<-gam(Topten~ Period+ManagedAreaBar+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=poisson,data=ED_AB_bin)
+gam_ED_AB_bin_negbin<-gam(Topten~ Period+ManagedAreaBar+ManagedAreaBar*Period+
+                     offset(SampleHr)+ Relief+
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=negbin(2),data=ED_AB_bin)
+
+visreg(gam_ED_AB_bin_negbin, "Period", by = "ManagedAreaBar", type = "conditional")
+summary(gam_ED_AB_bin_gaus)
+summary(gam_ED_AB_bin_pois)
+summary(gam_ED_AB_bin_negbin)
+
+anova(gam_ED_AB_bin_negbin)
+
+Topten_ED_waldtable <- wald_gam(gam_ED_AB_bin_negbin, comp=list(ManagedAreaBar=c('ED', 'EDCOMP'), 
+    Period=c('2000-2002', '2003-2005','2006-2008','2010-2012', '2013-2015', '2016-2018')), signif.stars=TRUE)
+
+
+
+BIC(gam_ED_AB_bin_gaus)
+BIC(gam_ED_AB_bin_pois)
+BIC(gam_ED_AB_bin_negbin)
+
+
+
+gam_ED_AB_negbin.predict=as.numeric(predict.gam(gam_ED_AB_bin_negbin,ED_AB_bin,type="response"))
+
+
+ED_AB_bin$hurdle=gam_ED_AB_negbin.predict
+
+
+as.numeric(ED_AB_bin$hurdle)
+
+TopTen_ANOVA<-aov(hurdle ~ ManagedAreaBar * Period, data=ED_AB_bin)
+Topten_tukeytable <- TukeyHSD(TopTen_ANOVA)
+Topten_tukeytable_data_MPA<-as.data.frame(Topten_tukeytable$`ManagedAreaBar:Period`)
+write.csv(Topten_tukeytable_data_MPA, 'Topten_tukeytable_data_ED_revised.csv')
+
+plot(gam_ED_AB_bin_negbin, pages = 8)
+gam.check(gam_ED_AB_bin_negbin)
+
+
+##Edisto Abundance - ggplot
+
+Edisto_final_abundance_summary <- ddply(ED_AB_bin, c("ManagedAreaBar", "Period"), summarise,
+               N    = length(hurdle),
+               mean = mean((hurdle), na.rm=TRUE),
+               sd   = sd((hurdle), na.rm =TRUE),
+               se   = sd / sqrt(N)
+)
+
+dodge <- position_dodge(width=0.9) 
+
+ggplot(Edisto_final_abundance_summary, aes(x=Period, y=mean, fill=ManagedAreaBar)) + geom_bar(stat="identity", color="black", position=position_dodge())+
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,position=position_dodge(.9))+  
+  ggtitle("Edisto\n") + 
+  labs(y = "Hurdle Model Predicted CPUE (+/- SE)\n", x = "\nPeriod", fill="") + 
+  scale_fill_manual(labels = c("Protected", "Unprotected"),values=c("#56B4E9", "#999999"))+ theme_classic()+
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15), 
+        legend.text=element_text(size=12)) + guides(fill=guide_legend("")) + scale_y_continuous(expand = c(0, 0))
+
+```
+
+
+##NSC Abundance
+
+```{r}
+
+#May need to be slightly different ggplot that shows variation in hurdle points
+
+NSC_Abundance <- read_csv("Chapter 3/NSC_Abundance.csv")
+NSC_Abundance$ManagedArea <- factor(NSC_Abundance$ManagedArea, levels = 
+                                      c("SC","NSCCOMP", "SC_PRE"))
+NSC_Abundance$ManagedArea <- revalue(NSC_Abundance$ManagedArea, 
+                                     c("SC"="Managed", "NSCCOMP"="Unmanaged", "SC_PRE" = "Unmanaged"))
+NSC_Abundance$Relief <- ordered(NSC_Abundance$Relief, levels = 
+                                   c("Low", "Moderate", "High"))
+NSC_Abundance$Relief <- revalue(NSC_Abundance$Relief, 
+                             c("Low"=1, "Moderate" = 2, "High" = 3))
+factor(NSC_Abundance$Relief)
+NSC_Abundance$Relief <- as.numeric(NSC_Abundance$Relief)
+
+NSC_Abundance$Period <- "Nothing"
+NSC_Abundance$Period[(NSC_Abundance$Year > 2015)] <- "2016-2018"
+
+NSC_Abundance$Period[(NSC_Abundance$Year<2016)&
+                                   (NSC_Abundance$Year>2012)] <- "2013-2015"
+
+NSC_Abundance$Period[(NSC_Abundance$Year<2013)&
+                                   (NSC_Abundance$Year>2009)] <- "2010-2012"
+
+NSC_Abundance$Period[(NSC_Abundance$Year>2005)&
+                                   (NSC_Abundance$Year<2009)] <- "2006-2008"
+
+NSC_Abundance$Period[(NSC_Abundance$Year<2006)&
+                                   (NSC_Abundance$Year>2002)] <- "2003-2005"
+
+NSC_Abundance$Period[(NSC_Abundance$Year<2003)] <- "2000-2002"
+
+NSC_Abundance <- NSC_Abundance[NSC_Abundance$Period!="Nothing",]
+
+NSC_Abundance$Period <-  ordered(NSC_Abundance$Period, levels = c("2000-2002", "2003-2005", "2006-2008", "2010-2012", "2013-2015", "2016-2018"))
+
+NSC_Abundance$Topten <- rowSums(NSC_Abundance[,c(28, 30, 33, 34, 42, 45, 51, 
+                                                 63, 64, 72)])
+
+
+
+NSC_AB_bin <- na.exclude(NSC_Abundance[,c(3,10,12:13,16,17,18,19,22,24,25,84:87)])
+
+
+
+gam_NSC_AB_bin_gaus<-gam(Topten~ ManagedAreaBar+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=gaussian,data=NSC_AB_bin)
+gam_NSC_AB_bin_pois<-gam(Topten~ ManagedAreaBar+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=poisson,data=NSC_AB_bin)
+
+gam_NSC_AB_bin_negbin<-gam(Topten~ ManagedAreaBar+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=negbin(2),data=NSC_AB_bin)
+
+summary(gam_NSC_AB_bin_gaus)
+summary(gam_NSC_AB_bin_pois)
+summary(gam_NSC_AB_bin_negbin)
+
+BIC(gam_NSC_AB_bin_gaus)
+BIC(gam_NSC_AB_bin_pois)
+BIC(gam_NSC_AB_bin_negbin)
+
+anova(gam_NSC_AB_bin_negbin)
+
+Topten_NSC_waldtable <- wald_gam(gam_NSC_AB_bin_negbin, comp=list(ManagedAreaBar=c('NSC', 'NSCCOMP'), 
+    Period=c('2000-2002', '2003-2005','2006-2008','2010-2012', '2013-2015', '2016-2018')))
+
+
+
+
+
+gam_NSC_AB_bin_negbin.predict=as.numeric(predict.gam(gam_NSC_AB_bin_negbin,NSC_AB_bin,type="response"))
+
+
+NSC_AB_bin$hurdle=gam_NSC_AB_bin_negbin.predict
+
+TopTen_ANOVA<-aov(hurdle ~ ManagedAreaBar * Period, data=NSC_AB_bin)
+Topten_tukeytable <- TukeyHSD(TopTen_ANOVA)
+Topten_tukeytable_data_MPA<-as.data.frame(Topten_tukeytable$`ManagedAreaBar:Period`)
+write.csv(Topten_tukeytable_data_MPA, 'Topten_tukeytable_data_NSC_revised.csv')
+
+anova(gam_NSC_AB_bin_negbin)
+
+
+##NSC Abundance - ggplot
+
+NSC_final_abundance_summary <- ddply(NSC_AB_bin, c("ManagedAreaBar", "Period"), summarise,
+               N    = length(hurdle),
+               mean = mean((hurdle), na.rm=TRUE),
+               sd   = sd((hurdle), na.rm =TRUE),
+               se   = sd / sqrt(N)
+)
+
+dodge <- position_dodge(width=0.9) 
+
+ggplot(NSC_final_abundance_summary, aes(x=Period, y=mean, fill=ManagedAreaBar)) + 
+geom_bar(stat="identity", color="black", position=position_dodge())+
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,position=position_dodge(.9))+  
+  ggtitle("North South Carolina\n") + 
+  labs(y = "Hurdle Model Predicted CPUE (+/- SE)\n", x = "\nPeriod", fill="") + 
+  scale_fill_manual(labels = c("Protected", "Unprotected"),values=c("#56B4E9", "#999999"))+ theme_classic()+
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15), 
+        legend.text=element_text(size=12)) + guides(fill=guide_legend("")) + scale_y_continuous(expand = c(0, 0))
+
+```
+
+### North FLorida without Pre-years
+
+```{r}
+library(plyr)
+library(dplyr)
+
+NF_Abundance <- read_csv("Chapter 3/NFL_Abundance.csv")
+NF_Abundance$ManagedArea <- factor(NF_Abundance$ManagedArea, levels = c("NF","NFCOMP","NF_PRE"))
+NF_Abundance$ManagedArea <- revalue(NF_Abundance$ManagedArea, c("NF"="Managed", "NFCOMP"="Unmanaged", "NF_PRE"="Unmanaged"))
+NF_Abundance$Relief <- ordered(NF_Abundance$Relief, levels = 
+                                   c("Low", "Moderate", "High"))
+NF_Abundance$Relief <- revalue(NF_Abundance$Relief, 
+                             c("Low"=1, "Moderate" = 2, "High" = 3))
+factor(NF_Abundance$Relief)
+NF_Abundance$Relief <- as.numeric(NF_Abundance$Relief)
+
+
+NF_Abundance$Period <- "Nothing"
+NF_Abundance$Period[(NF_Abundance$Year > 2015)] <- "2016-2018"
+
+NF_Abundance$Period[(NF_Abundance$Year<2016)&
+                                   (NF_Abundance$Year>2012)] <- "2013-2015"
+
+NF_Abundance$Period[(NF_Abundance$Year<2013)&
+                                   (NF_Abundance$Year>2009)] <- "2010-2012"
+
+NF_Abundance$Period[(NF_Abundance$Year>2005)&
+                                   (NF_Abundance$Year<2009)] <- "2006-2008"
+
+NF_Abundance$Period[(NF_Abundance$Year<2006)&
+                                   (NF_Abundance$Year>2002)] <- "2003-2005"
+
+NF_Abundance$Period[(NF_Abundance$Year<2003)] <- "2000-2002"
+
+NF_Abundance <- NF_Abundance[NF_Abundance$Period!="Nothing",]
+
+NF_Abundance$Period <-  ordered(NF_Abundance$Period, levels = c("2000-2002", "2003-2005", "2006-2008", "2010-2012", "2013-2015", "2016-2018"))
+
+
+NF_Abundance <- NF_Abundance %>% 
+  filter(Year > 2009)
+
+
+NF_Abundance$Topten <- rowSums(NF_Abundance[,c(27, 32, 38, 39, 53, 60, 62, 66, 68, 69)])
+
+NF_AB_bin <- na.exclude(NF_Abundance[,c(3,10,12:13,16,17,18,19,22,24,25,71:74)])
+
+
+
+ggam_NF_AB_bin_gaus<-gam(Topten~ ManagedAreaBar+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=gaussian,data=NF_AB_bin)
+gam_NF_AB_bin_pois<-gam(Topten~ ManagedAreaBar+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=poisson,data=NF_AB_bin)
+
+gam_NF_AB_bin_negbin<-gam(Topten~ ManagedAreaBar+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=negbin(2),data=NF_AB_bin)
+
+summary(gam_NF_AB_bin_gaus)
+summary(gam_NF_AB_bin_pois)
+summary(gam_NF_AB_bin_negbin)
+
+BIC(gam_NF_AB_bin_gaus)
+BIC(gam_NF_AB_bin_pois)
+BIC(gam_NF_AB_bin_negbin)
+
+anova(gam_NF_AB_bin_negbin)
+
+
+
+gam_NF_AB_bin_negbin.predict=as.numeric(predict.gam(gam_NF_AB_bin_negbin,NF_AB_bin,type="response"))
+
+
+
+
+NF_AB_bin$hurdle=gam_NF_AB_bin_negbin.predict
+
+TopTen_ANOVA<-aov(hurdle ~ ManagedAreaBar * Period, data=NF_AB_bin)
+Topten_tukeytable <- TukeyHSD(TopTen_ANOVA)
+Topten_tukeytable_data_MPA<-as.data.frame(Topten_tukeytable$`ManagedAreaBar:Period`)
+write.csv(Topten_tukeytable_data_MPA, 'Topten_tukeytable_data_NF_revised.csv')
+
+##North Florida Abundance - ggplot
+
+NF_final_abundance_summary <- ddply(NF_AB_bin, c("ManagedAreaBar", "Period"), summarise,
+               N    = length(hurdle),
+               mean = mean((hurdle), na.rm=TRUE),
+               sd   = sd((hurdle), na.rm =TRUE),
+               se   = sd / sqrt(N)
+)
+
+NF_final_abundance_summary_new <- data.frame(ManagedAreaBar = c("NF","NF","NF", "NFCOMP", "NFCOMP","NFCOMP"), Period = c("2000-2002","2003-2005", "2006-2008","2000-2002","2003-2005", "2006-2008"), N = c(0,0,0,0,0,0), mean = c(0,0,0,0,0,0), sd = c(0,0,0,0,0,0), se =c(0,0,0,0,0,0) )
+
+rownames(NF_final_abundance_summary) <- c(4,5,6,10,11,12)
+row.names(NF_final_abundance_summary_new) <- c(1,2,3,7,8,9)
+
+NF_final_abundance_summary <- rbind(NF_final_abundance_summary, NF_final_abundance_summary_new)
+
+dodge <- position_dodge(width=0.9) 
+
+ggplot(NF_final_abundance_summary, aes(x=Period, y=mean, fill=ManagedAreaBar)) + 
+geom_bar(stat="identity", color="black", position=position_dodge())+
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,position=position_dodge(.9))+  
+  ggtitle("North Florida\n") + 
+  labs(y = "Hurdle Model Predicted CPUE (+/- SE)\n", x = "\nPeriod", fill="") + 
+  scale_fill_manual(labels = c("Protected", "Unprotected"),values=c("#56B4E9", "#999999"))+ theme_classic()+
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15), 
+        legend.text=element_text(size=12)) + guides(fill=guide_legend("")) + scale_y_continuous(expand = c(0, 0))
+```
+
+
+###Multi-panel figure - Top 10
+
+```{r}
+#Fix existing plots: add line separating pre and post.  change color (blue to black
+#add sample sizes for each period). 169mm width
+
+#NSC
+
+NSC_CPUE <- ggplot(NSC_final_abundance_summary, aes(x=Period, y=mean, fill=ManagedAreaBar)) + geom_bar(stat="identity", color="black", position=position_dodge())+
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,position=position_dodge(.9))+   
+  ggtitle("Northern South Carolina") +
+  labs(y = "", x = "", fill="") + 
+  scale_fill_manual(labels = c("Inside", "Outside"),values=c("gray30", "grey"))+ theme_classic()+
+  theme(title=element_text(size = 12),axis.text=element_text(size=10),axis.title=element_text(size=10), legend.text=element_text(size=10), plot.title = element_text(size=12)) + guides(fill=guide_legend("")) + scale_y_continuous(expand = c(0, 0), breaks = seq(0,10,5)) + geom_vline(xintercept = 3.5, linetype="dashed", color = "black", size=1.5)
+
+library(grid)
+NSC_CPUE_Sample <- textGrob("N =", gp=gpar(fontsize=10))
+NSC_CPUE_2000 <- textGrob("(20|20)", gp=gpar(fontsize=10))
+NSC_CPUE_2003 <- textGrob("(38|38)", gp=gpar(fontsize=10))
+NSC_CPUE_2006<- textGrob("(47|47)", gp=gpar(fontsize=10))
+NSC_CPUE_2010<- textGrob("(47|53)", gp=gpar(fontsize=10))
+NSC_CPUE_2013<- textGrob("(63|59)", gp=gpar(fontsize=10))
+NSC_CPUE_2016<- textGrob("(38|44)", gp=gpar(fontsize=10))
+
+NSC_CPUE_SampleSize <- NSC_CPUE+theme(plot.margin = unit(c(1,1,1,1), "lines"))  + annotation_custom(NSC_CPUE_Sample,xmin=0.5,xmax=0.5,ymin=-3.0,ymax=-3.0)+annotation_custom(NSC_CPUE_2000,xmin=1,xmax=1,ymin=-3.0,ymax=-3.0)+ annotation_custom(NSC_CPUE_2003,xmin=2,xmax=2,ymin=-3.0,ymax=-3.0)+ annotation_custom(NSC_CPUE_2006,xmin=3,xmax=3,ymin=-3.0,ymax=-3.0)+ annotation_custom(NSC_CPUE_2010,xmin=4,xmax=4,ymin=-3.0,ymax=-3.0)+ annotation_custom(NSC_CPUE_2013,xmin=5,xmax=5,ymin=-3.0,ymax=-3.0)+ annotation_custom(NSC_CPUE_2016,xmin=6,xmax=6,ymin=-3.0,ymax=-3.0)+
+  coord_cartesian(clip = "off")
+
+#Edisto
+
+EdistoCPUE <- ggplot(Edisto_final_abundance_summary, aes(x=Period, y=mean, fill=ManagedAreaBar)) + geom_bar(stat="identity", color="black", position=position_dodge())+
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,position=position_dodge(.9))+  
+  ggtitle("Edisto") + 
+  labs(y = "", x = "", fill="") + 
+  scale_fill_manual(labels = c("Inside", "Outside"),values=c("gray30", "grey"))+ theme_classic()+
+  theme(title=element_text(size = 12),axis.text=element_text(size=10),axis.title=element_text(size=10), 
+        legend.text=element_text(size=10), plot.title = element_text(size=12)) + guides(fill=guide_legend("")) + scale_y_continuous(expand = c(0, 0)) + geom_vline(xintercept = 3.5, linetype="dashed", 
+                color = "black", size=1.5)
+
+
+EdistoCPUE_Sample <- textGrob("N =", gp=gpar(fontsize=10))
+EdistoCPUE_2000 <- textGrob("(23|23)", gp=gpar(fontsize=10))
+EdistoCPUE_2003 <- textGrob("(20|20)", gp=gpar(fontsize=10))
+EdistoCPUE_2006<- textGrob("(17|17)", gp=gpar(fontsize=10))
+EdistoCPUE_2010<- textGrob("(25|32)", gp=gpar(fontsize=10))
+EdistoCPUE_2013<- textGrob("(43|39)", gp=gpar(fontsize=10))
+EdistoCPUE_2016<- textGrob("(41|35)", gp=gpar(fontsize=10))
+
+EdistoCPUE_SampleSize <- EdistoCPUE+theme(plot.margin = unit(c(1,1,1,1), "lines"))  + annotation_custom(EdistoCPUE_Sample,xmin=0.5,xmax=0.5,ymin=-4.0,ymax=-4.0)+annotation_custom(EdistoCPUE_2000,xmin=1,xmax=1,ymin=-4.0,ymax=-4.0)+ annotation_custom(EdistoCPUE_2003,xmin=2,xmax=2,ymin=-4.0,ymax=-4.0)+ annotation_custom(EdistoCPUE_2006,xmin=3,xmax=3,ymin=-4.0,ymax=-4.0)+ annotation_custom(EdistoCPUE_2010,xmin=4,xmax=4,ymin=-4.0,ymax=-4.0)+ annotation_custom(EdistoCPUE_2013,xmin=5,xmax=5,ymin=-4.0,ymax=-4.0)+ annotation_custom(EdistoCPUE_2016,xmin=6,xmax=6,ymin=-4.0,ymax=-4.0)+
+  coord_cartesian(clip = "off")
+
+#North Florida
+
+NF_CPUE <- ggplot(NF_final_abundance_summary, aes(x=Period, y=mean, fill=ManagedAreaBar)) + 
+geom_bar(stat="identity", color="black", position=position_dodge())+
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,position=position_dodge(.9))+  
+  ggtitle("North Florida") + 
+  labs(y = "", x = "", fill="") + 
+  scale_fill_manual(labels = c("Inside", "Outside"),values=c("gray30", "grey"))+ theme_classic()+
+  theme(title=element_text(size = 12),axis.text=element_text(size=10),axis.title=element_text(size=10), 
+        legend.text=element_text(size=10), plot.title = element_text(size=12)) + guides(fill=guide_legend("")) + scale_y_continuous(expand = c(0, 0), breaks = seq(0,15,5))+ geom_vline(xintercept = 3.5, linetype="dashed", 
+                color = "black", size=1.5)
+
+NF_CPUE_Sample <- textGrob("N =", gp=gpar(fontsize=10))
+NF_CPUE_2000 <- textGrob("(13|13)", gp=gpar(fontsize=10))
+NF_CPUE_2003 <- textGrob("(9|9)", gp=gpar(fontsize=10))
+NF_CPUE_2006<- textGrob("(5|5)", gp=gpar(fontsize=10))
+NF_CPUE_2010<- textGrob("(47|44)", gp=gpar(fontsize=10))
+NF_CPUE_2013<- textGrob("(72|69)", gp=gpar(fontsize=10))
+NF_CPUE_2016<- textGrob("(58|58)", gp=gpar(fontsize=10))
+
+#Without NF-Pre
+
+NF_CPUE_2000 <- textGrob("", gp=gpar(fontsize=10))
+NF_CPUE_2003 <- textGrob("", gp=gpar(fontsize=10))
+NF_CPUE_2006<- textGrob("", gp=gpar(fontsize=10))
+
+NF_CPUE_SampleSize <- NF_CPUE+theme(plot.margin = unit(c(1,1,1,1), "lines"))  + annotation_custom(NF_CPUE_Sample,xmin=0.5,xmax=0.5,ymin=-2.0,ymax=-2.0)+annotation_custom(NF_CPUE_2000,xmin=1,xmax=1,ymin=-2.0,ymax=-2.0)+ annotation_custom(NF_CPUE_2003,xmin=2,xmax=2,ymin=-2.0,ymax=-2.0)+ annotation_custom(NF_CPUE_2006,xmin=3,xmax=3,ymin=-2.0,ymax=-2.0)+ annotation_custom(NF_CPUE_2010,xmin=4,xmax=4,ymin=-2.0,ymax=-2.0)+ annotation_custom(NF_CPUE_2013,xmin=5,xmax=5,ymin=-2.0,ymax=-2.0)+ annotation_custom(NF_CPUE_2016,xmin=6,xmax=6,ymin=-2.0,ymax=-2.0)+
+  coord_cartesian(clip = "off")
+
+
+NSC_CPUE_SampleSize
+EdistoCPUE_SampleSize
+NF_CPUE_SampleSize
+
+library(ggpubr)
+
+CPUE_All <- ggarrange(
+  NSC_CPUE_SampleSize, EdistoCPUE_SampleSize, NF_CPUE_SampleSize,
+  common.legend = TRUE, legend = "top", ncol = 1, nrow = 3
+  )
+
+CPUE_All_Final<- annotate_figure(CPUE_All, bottom = text_grob("        Period\n",  size = 15), left = text_grob("\nPredicted Abundance of Managed Fish Species (+/- SE)", rot = 90, size = 15))
+
+ggsave("CPUE_All_Final_revised_2.tiff", width = 169,  units = "mm")
+```
+
+
+##Red Porgy - Edisto Abundance
+
+```{r}
+
+library(readr)
+#GAM######### 
+library(mgcv)
+
+##for summarizing data
+library(doBy)
+
+######for testing multicollinearity - use this for test as well
+library(fmsb)
+
+###revlaue
+library(plyr)
+library(ggplot2)
+
+Edisto_Abundance <- read_csv("Chapter 3/Edisto_Abundance.csv")
+Edisto_Abundance$ManagedArea <- factor(Edisto_Abundance$ManagedArea, levels = c("ED","EDCOMP","ED_PRE"))
+Edisto_Abundance$ManagedArea <- revalue(Edisto_Abundance$ManagedArea, c("ED"="Managed", "EDCOMP"="Unmanaged", "ED_PRE"="Unmanaged"))
+Edisto_Abundance$Relief <- ordered(Edisto_Abundance$Relief, levels = 
+                                   c("Low", "Moderate", "High"))
+Edisto_Abundance$Relief <- revalue(Edisto_Abundance$Relief, 
+                             c("Low"=1, "Moderate" = 2, "High" = 3))
+factor(Edisto_Abundance$Relief)
+Edisto_Abundance$Relief <- as.numeric(Edisto_Abundance$Relief)
+
+
+Edisto_Abundance$Period <- "Nothing"
+Edisto_Abundance$Period[(Edisto_Abundance$Year > 2015)] <- "2016-2018"
+
+Edisto_Abundance$Period[(Edisto_Abundance$Year<2016)&
+                                   (Edisto_Abundance$Year>2012)] <- "2013-2015"
+
+Edisto_Abundance$Period[(Edisto_Abundance$Year<2013)&
+                                   (Edisto_Abundance$Year>2009)] <- "2010-2012"
+
+Edisto_Abundance$Period[(Edisto_Abundance$Year>2005)&
+                                   (Edisto_Abundance$Year<2009)] <- "2006-2008"
+
+Edisto_Abundance$Period[(Edisto_Abundance$Year<2006)&
+                                   (Edisto_Abundance$Year>2002)] <- "2003-2005"
+
+Edisto_Abundance$Period[(Edisto_Abundance$Year<2003)] <- "2000-2002"
+
+Edisto_Abundance <- Edisto_Abundance[Edisto_Abundance$Period!="Nothing",]
+
+Edisto_Abundance$Period <-  ordered(Edisto_Abundance$Period, levels = c("2000-2002", "2003-2005", "2006-2008", "2010-2012", "2013-2015", "2016-2018"))
+
+
+
+ED_AB_bin_RP <- na.exclude(Edisto_Abundance[,c(3,10,12:13,16,17,18,21,23,24,63,80:82,84)])
+ED_AB_bin_RP$Pagrus <- ED_AB_bin_RP$`Pagrus pagrus`
+
+gam_ED_AB_bin_gaus_RP<-gam(Pagrus~ ManagedArea+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=gaussian,data=ED_AB_bin_RP)
+gam_ED_AB_bin_pois_RP<-gam(Pagrus~ ManagedArea+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=poisson,data=ED_AB_bin_RP)
+gam_ED_AB_bin_negbin_RP<-gam(Pagrus~ ManagedArea+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=negbin(2),data=ED_AB_bin_RP)
+
+
+
+summary(gam_ED_AB_bin_gaus_RP)
+summary(gam_ED_AB_bin_pois_RP)
+summary(gam_ED_AB_bin_negbin_RP)
+
+
+BIC(gam_ED_AB_bin_gaus_RP)
+BIC(gam_ED_AB_bin_pois_RP)
+BIC(gam_ED_AB_bin_negbin_RP)
+
+
+gam_ED_AB_bin_negbin_RP.predict=as.numeric(predict.gam(gam_ED_AB_bin_negbin_RP,
+                                                ED_AB_bin_RP,type="response"))
+
+
+ED_AB_bin_RP$hurdle=gam_ED_AB_bin_negbin_RP.predict
+
+
+as.numeric(ED_AB_bin_RP$hurdle)
+
+TopTen_ANOVA<-aov(hurdle ~ ManagedAreaBar * Period, data=ED_AB_bin_RP)
+Topten_tukeytable <- TukeyHSD(TopTen_ANOVA)
+Topten_tukeytable_data_MPA<-as.data.frame(Topten_tukeytable$`ManagedAreaBar:Period`)
+write.csv(Topten_tukeytable_data_MPA, 'RP_tukeytable_data_ED_revised.csv')
+
+
+anova(gam_ED_AB_bin_negbin_RP)
+gam.check(gam_ED_AB_bin_negbin_RP)
+
+##Edisto Abundance - ggplot
+
+Edisto_final_abundance_summary_RP <- ddply(ED_AB_bin_RP, c("ManagedAreaBar", "Period"), summarise,
+               N    = length(hurdle),
+               mean = mean((hurdle), na.rm=TRUE),
+               sd   = sd((hurdle), na.rm =TRUE),
+               se   = sd / sqrt(N)
+)
+
+dodge <- position_dodge(width=0.9) 
+
+ggplot(Edisto_final_abundance_summary_RP, aes(x=Period, y=mean, fill=ManagedAreaBar)) +geom_bar(stat="identity", color="black", position=position_dodge())+
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,position=position_dodge(.9))+  
+  ggtitle("Edisto\n") + 
+  labs(y = "Hurdle Model Predicted CPUE (+/- SE)\n", x = "\nPeriod", fill="") + 
+  scale_fill_manual(labels = c("Protected", "Unprotected"),values=c("#FF0000", "#999999"))+ theme_classic()+
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15), 
+        legend.text=element_text(size=12)) + guides(fill=guide_legend("")) + scale_y_continuous(expand = c(0, 0)) 
+  
+### add line in the middle geom_vline(xintercept=3.5, linetype="dashed", size = 1, colour = "black")
+
+```
+
+
+##Red Porgy - NSC Abundance
+
+```{r}
+
+#May need to be slightly different ggplot that shows variation in hurdle points
+
+NSC_Abundance <- read_csv("Chapter 3/NSC_Abundance.csv")
+NSC_Abundance$ManagedArea <- factor(NSC_Abundance$ManagedArea, levels = c("SC","NSCCOMP","SC_PRE"))
+NSC_Abundance$ManagedArea <- revalue(NSC_Abundance$ManagedArea, c("SC"="Managed", "NSCCOMP"="Unmanaged","SC_PRE"="Unmanaged"))
+NSC_Abundance$Relief <- ordered(NSC_Abundance$Relief, levels = 
+                                   c("Low", "Moderate", "High"))
+NSC_Abundance$Relief <- revalue(NSC_Abundance$Relief, 
+                             c("Low"=1, "Moderate" = 2, "High" = 3))
+factor(NSC_Abundance$Relief)
+NSC_Abundance$Relief <- as.numeric(NSC_Abundance$Relief)
+
+
+NSC_Abundance$Period <- "Nothing"
+NSC_Abundance$Period[(NSC_Abundance$Year > 2015)] <- "2016-2018"
+
+NSC_Abundance$Period[(NSC_Abundance$Year<2016)&
+                                   (NSC_Abundance$Year>2012)] <- "2013-2015"
+
+NSC_Abundance$Period[(NSC_Abundance$Year<2013)&
+                                   (NSC_Abundance$Year>2009)] <- "2010-2012"
+
+NSC_Abundance$Period[(NSC_Abundance$Year>2005)&
+                                   (NSC_Abundance$Year<2009)] <- "2006-2008"
+
+NSC_Abundance$Period[(NSC_Abundance$Year<2006)&
+                                   (NSC_Abundance$Year>2002)] <- "2003-2005"
+
+NSC_Abundance$Period[(NSC_Abundance$Year<2003)] <- "2000-2002"
+
+NSC_Abundance <- NSC_Abundance[NSC_Abundance$Period!="Nothing",]
+
+NSC_Abundance$Period <-  ordered(NSC_Abundance$Period, levels = c("2000-2002", "2003-2005", "2006-2008", "2010-2012", "2013-2015", "2016-2018"))
+
+
+
+NSC_AB_bin_RP <- na.exclude(NSC_Abundance[,c(3,10,12:13,16,17,18,19,22,24,25,64,84:86)])
+NSC_AB_bin_RP$Pagrus <- NSC_AB_bin_RP$`Pagrus pagrus`
+
+gam_NSC_AB_bin_gaus_RP<-gam(Pagrus~ ManagedAreaBar+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=gaussian,data=NSC_AB_bin_RP)
+gam_NSC_AB_bin_pois_RP<-gam(Pagrus~ ManagedAreaBar+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=poisson,data=NSC_AB_bin_RP)
+
+
+gam_NSC_AB_bin_negbin_RP<-gam(Pagrus~ ManagedAreaBar+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=negbin(2),data=NSC_AB_bin_RP)
+
+
+summary(gam_NSC_AB_bin_gaus_RP)
+summary(gam_NSC_AB_bin_pois_RP)
+summary(gam_NSC_AB_bin_negbin_RP)
+
+BIC(gam_NSC_AB_bin_gaus_RP)
+BIC(gam_NSC_AB_bin_pois_RP)
+BIC(gam_NSC_AB_bin_negbin_RP)
+
+anova(gam_NSC_AB_bin_negbin_RP)
+
+
+gam_NSC_AB_bin_negbin_RP.predict=as.numeric(predict.gam(gam_NSC_AB_bin_negbin_RP,
+                                                 NSC_AB_bin_RP,type="response"))
+
+
+
+NSC_AB_bin_RP$hurdle=gam_NSC_AB_bin_negbin_RP.predict
+
+
+as.numeric(NSC_AB_bin_RP$hurdle)
+
+TopTen_ANOVA<-aov(hurdle ~ ManagedAreaBar * Period, data=NSC_AB_bin_RP)
+Topten_tukeytable <- TukeyHSD(TopTen_ANOVA)
+Topten_tukeytable_data_MPA<-as.data.frame(Topten_tukeytable$`ManagedAreaBar:Period`)
+write.csv(Topten_tukeytable_data_MPA, 'RP_tukeytable_data_NSC_revised.csv')
+
+##NSC Abundance - ggplot
+
+NSC_final_abundance_summary_RP <- ddply(NSC_AB_bin_RP, c("ManagedAreaBar", "Period"), 
+                                     summarise,
+               N    = length(hurdle),
+               mean = mean((hurdle), na.rm=TRUE),
+               sd   = sd((hurdle), na.rm =TRUE),
+               se   = sd / sqrt(N)
+)
+
+dodge <- position_dodge(width=0.9) 
+
+ggplot(NSC_final_abundance_summary_RP, aes(x=Period, y=mean, fill=ManagedAreaBar)) + geom_bar(stat="identity", color="black", position=position_dodge())+
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,position=position_dodge(.9))+  
+  ggtitle("North South Carolina\n") + 
+  labs(y = "Hurdle Model Predicted CPUE (+/- SE)\n", x = "\nPeriod", fill="") + 
+  scale_fill_manual(labels = c("Protected", "Unprotected"),values=c("#FF0000", "#999999"))+ theme_classic()+
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15), 
+        legend.text=element_text(size=12)) + guides(fill=guide_legend("")) + scale_y_continuous(expand = c(0, 0))
+
+```
+
+
+#NOrth FLorida - without PRe MPA data
+
+```{r}
+NF_Abundance <- read_csv("Chapter 3/NFL_Abundance.csv")
+NF_Abundance$ManagedArea <- factor(NF_Abundance$ManagedArea, levels = c("NF","NFCOMP","NF_PRE"))
+NF_Abundance$ManagedArea <- revalue(NF_Abundance$ManagedArea, c("NF"="Managed", "NFCOMP"="Unmanaged","NF_PRE"="Unmanaged"))
+NF_Abundance$Relief <- ordered(NF_Abundance$Relief, levels = 
+                                   c("Low", "Moderate", "High"))
+NF_Abundance$Relief <- revalue(NF_Abundance$Relief, 
+                             c("Low"=1, "Moderate" = 2, "High" = 3))
+factor(NF_Abundance$Relief)
+NF_Abundance$Relief <- as.numeric(NF_Abundance$Relief)
+
+
+NF_Abundance$Period <- "Nothing"
+NF_Abundance$Period[(NF_Abundance$Year > 2015)] <- "2016-2018"
+
+NF_Abundance$Period[(NF_Abundance$Year<2016)&
+                                   (NF_Abundance$Year>2012)] <- "2013-2015"
+
+NF_Abundance$Period[(NF_Abundance$Year<2013)&
+                                   (NF_Abundance$Year>2009)] <- "2010-2012"
+
+NF_Abundance$Period[(NF_Abundance$Year>2005)&
+                                   (NF_Abundance$Year<2009)] <- "2006-2008"
+
+NF_Abundance$Period[(NF_Abundance$Year<2006)&
+                                   (NF_Abundance$Year>2002)] <- "2003-2005"
+
+NF_Abundance$Period[(NF_Abundance$Year<2003)] <- "2000-2002"
+
+NF_Abundance <- NF_Abundance[NF_Abundance$Period!="Nothing",]
+
+NF_Abundance$Period <-  ordered(NF_Abundance$Period, levels = c("2000-2002", "2003-2005", "2006-2008", "2010-2012", "2013-2015", "2016-2018"))
+
+NF_Abundance <- NF_Abundance %>% 
+  filter(Year > 2009)
+
+
+NF_AB_bin_RP <- na.exclude(NF_Abundance[,c(3,10,12:13,16,17,18,19,22,24,25,62,71:73)])
+NF_AB_bin_RP$Pagrus <- NF_AB_bin_RP$`Pagrus pagrus`
+
+
+gam_NF_AB_bin_gaus_RP<-gam(Pagrus~ ManagedAreaBar+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=gaussian,data=NF_AB_bin_RP)
+gam_NF_AB_bin_pois_RP<-gam(Pagrus~ ManagedAreaBar+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=poisson,data=NF_AB_bin_RP)
+
+gam_NF_AB_bin_negbin_RP<-gam(Pagrus~ ManagedAreaBar+Period+ManagedAreaBar*Period+
+                     offset(SampleHr)+ 
+                     Relief + 
+                     s(SubstrateDensity,k=4)+
+                     s(BiotaDensity,k=4)+ 
+                     s(StationDepth, k=4)+
+                     s(Temp,k=4),family=negbin(2),data=NF_AB_bin_RP)
+
+summary(gam_NF_AB_bin_gaus_RP)
+summary(gam_NF_AB_bin_pois_RP)
+summary(gam_NF_AB_bin_negbin_RP)
+
+BIC(gam_NF_AB_bin_gaus_RP)
+BIC(gam_NF_AB_bin_pois_RP)
+BIC(gam_NF_AB_bin_negbin_RP)
+
+anova(gam_NF_AB_bin_negbin_RP)
+
+
+gam_NF_AB_bin_negbin_RP.predict=as.numeric(predict.gam(gam_NF_AB_bin_negbin_RP,
+                                                NF_AB_bin_RP,type="response"))
+
+
+
+NF_AB_bin_RP$hurdle=gam_NF_AB_bin_negbin_RP.predict
+
+
+
+
+as.numeric(NF_AB_bin_RP$hurdle)
+
+TopTen_ANOVA<-aov(hurdle ~ ManagedAreaBar * Period, data=NF_AB_bin_RP)
+Topten_tukeytable <- TukeyHSD(TopTen_ANOVA)
+Topten_tukeytable_data_MPA<-as.data.frame(Topten_tukeytable$`ManagedAreaBar:Period`)
+write.csv(Topten_tukeytable_data_MPA, 'RP_tukeytable_data_NF_revised.csv')
+
+
+##North Florida Abundance - ggplot
+
+NF_final_abundance_summary_RP <- ddply(NF_AB_bin_RP, c("ManagedAreaBar", "Period"), summarise,
+               N    = length(hurdle),
+               mean = mean((hurdle), na.rm=TRUE),
+               sd   = sd((hurdle), na.rm =TRUE),
+               se   = sd / sqrt(N)
+)
+
+NF_final_abundance_summary_RP_new <- data.frame(ManagedAreaBar = c("NF","NF","NF", "NFCOMP", "NFCOMP","NFCOMP"), Period = c("2000-2002","2003-2005", "2006-2008","2000-2002","2003-2005", "2006-2008"), N = c(0,0,0,0,0,0), mean = c(0,0,0,0,0,0), sd = c(0,0,0,0,0,0), se =c(0,0,0,0,0,0) )
+
+rownames(NF_final_abundance_summary_RP) <- c(4,5,6,10,11,12)
+row.names(NF_final_abundance_summary_RP_new) <- c(1,2,3,7,8,9)
+
+NF_final_abundance_summary_RP <- rbind(NF_final_abundance_summary_RP, NF_final_abundance_summary_RP_new)
+
+dodge <- position_dodge(width=0.9) 
+
+ggplot(NF_final_abundance_summary_RP, aes(x=Period, y=mean, fill=ManagedAreaBar)) + geom_bar(stat="identity", color="black", position=position_dodge())+
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,position=position_dodge(.9))+  
+  ggtitle("North Florida\n") + 
+  labs(y = "Hurdle Model Predicted CPUE (+/- SE)\n", x = "\nPeriod", fill="") + 
+  scale_fill_manual(labels = c("Protected", "Unprotected"),values=c("#FF0000", "#999999"))+ theme_classic()+
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15), 
+        legend.text=element_text(size=12)) + guides(fill=guide_legend("")) + scale_y_continuous(expand = c(0, 0))
+```
+
+
+###Multi-panel figure - Red Porgy
+
+```{r}
+#Fix existing plots: add line separating pre and post.  change color (blue to black
+#add sample sizes for each period). 169mm width
+
+#NSC
+
+NSC_CPUE_RP <- ggplot(NSC_final_abundance_summary_RP, aes(x=Period, y=mean, fill=ManagedAreaBar)) + 
+geom_bar(stat="identity", color="black", position=position_dodge())+
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,position=position_dodge(.9))+   
+  ggtitle("Northern South Carolina") +
+  labs(y = "", x = "", fill="") + 
+  scale_fill_manual(labels = c("Inside", "Outside"),values=c("gray30", "grey"))+ theme_classic()+
+  theme(title=element_text(size = 12),axis.text=element_text(size=10),axis.title=element_text(size=10), legend.text=element_text(size=10), plot.title = element_text(size=12)) + guides(fill=guide_legend("")) + scale_y_continuous(expand = c(0, 0), breaks = seq(0,4,1)) + geom_vline(xintercept = 3.5, linetype="dashed", color = "black", size=1.5)
+
+library(grid)
+NSC_CPUE_RP_Sample <- textGrob("N =", gp=gpar(fontsize=10))
+NSC_CPUE_RP_2000 <- textGrob("(20|20)", gp=gpar(fontsize=10))
+NSC_CPUE_RP_2003 <- textGrob("(38|38)", gp=gpar(fontsize=10))
+NSC_CPUE_RP_2006<- textGrob("(47|47)", gp=gpar(fontsize=10))
+NSC_CPUE_RP_2010<- textGrob("(47|53)", gp=gpar(fontsize=10))
+NSC_CPUE_RP_2013<- textGrob("(63|59)", gp=gpar(fontsize=10))
+NSC_CPUE_RP_2016<- textGrob("(38|44)", gp=gpar(fontsize=10))
+
+NSC_CPUE_RP_SampleSize <- NSC_CPUE_RP+theme(plot.margin = unit(c(1,1,1,1), "lines"))  + annotation_custom(NSC_CPUE_RP_Sample,xmin=0.5,xmax=0.5,ymin=-1.3,ymax=-1.3)+annotation_custom(NSC_CPUE_RP_2000,xmin=1,xmax=1,ymin=-1.3,ymax=-1.3)+ annotation_custom(NSC_CPUE_RP_2003,xmin=2,xmax=2,ymin=-1.3,ymax=-1.3)+ annotation_custom(NSC_CPUE_RP_2006,xmin=3,xmax=3,ymin=-1.3,ymax=-1.3)+ annotation_custom(NSC_CPUE_RP_2010,xmin=4,xmax=4,ymin=-1.3,ymax=-1.3)+ annotation_custom(NSC_CPUE_RP_2013,xmin=5,xmax=5,ymin=-1.3,ymax=-1.3)+ annotation_custom(NSC_CPUE_RP_2016,xmin=6,xmax=6,ymin=-1.3,ymax=-1.3)+
+  coord_cartesian(clip = "off")
+
+#Edisto
+
+EdistoCPUE_RP <- ggplot(Edisto_final_abundance_summary_RP, aes(x=Period, y=mean, fill=ManagedAreaBar)) + geom_bar(stat="identity", color="black", position=position_dodge())+
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,position=position_dodge(.9))+  
+  ggtitle("Edisto") + 
+  labs(y = "", x = "", fill="") + 
+  scale_fill_manual(labels = c("Inside", "Outside"),values=c("gray30", "grey"))+ theme_classic()+
+  theme(title=element_text(size = 12),axis.text=element_text(size=10),axis.title=element_text(size=10), 
+        legend.text=element_text(size=10), plot.title = element_text(size=12)) + guides(fill=guide_legend("")) + scale_y_continuous(expand = c(0, 0),breaks = seq(0,9,3)) + geom_vline(xintercept = 3.5, linetype="dashed", 
+                color = "black", size=1.5)
+
+
+EdistoCPUE_RP_Sample <- textGrob("N =", gp=gpar(fontsize=10))
+EdistoCPUE_RP_2000 <- textGrob("(23|22)", gp=gpar(fontsize=10))
+EdistoCPUE_RP_2003 <- textGrob("(20|20)", gp=gpar(fontsize=10))
+EdistoCPUE_RP_2006<- textGrob("(17|17)", gp=gpar(fontsize=10))
+EdistoCPUE_RP_2010<- textGrob("(25|32)", gp=gpar(fontsize=10))
+EdistoCPUE_RP_2013<- textGrob("(43|39)", gp=gpar(fontsize=10))
+EdistoCPUE_RP_2016<- textGrob("(41|35)", gp=gpar(fontsize=10))
+
+EdistoCPUE_RP_SampleSize <- EdistoCPUE_RP+theme(plot.margin = unit(c(1,1,1,1), "lines"))  + annotation_custom(EdistoCPUE_RP_Sample,xmin=0.5,xmax=0.5,ymin=-3.0,ymax=-3.0)+annotation_custom(EdistoCPUE_RP_2000,xmin=1,xmax=1,ymin=-3.0,ymax=-3.0)+ annotation_custom(EdistoCPUE_RP_2003,xmin=2,xmax=2,ymin=-3.0,ymax=-3.0)+ annotation_custom(EdistoCPUE_RP_2006,xmin=3,xmax=3,ymin=-3.0,ymax=-3.0)+ annotation_custom(EdistoCPUE_RP_2010,xmin=4,xmax=4,ymin=-3.0,ymax=-3.0)+ annotation_custom(EdistoCPUE_RP_2013,xmin=5,xmax=5,ymin=-3.0,ymax=-3.0)+ annotation_custom(EdistoCPUE_RP_2016,xmin=6,xmax=6,ymin=-3.0,ymax=-3.0)+
+  coord_cartesian(clip = "off")
+
+#North Florida
+
+NF_CPUE_RP <- ggplot(NF_final_abundance_summary_RP, aes(x=Period, y=mean, fill=ManagedAreaBar)) + geom_bar(stat="identity", color="black", position=position_dodge())+
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,position=position_dodge(.9))+  
+  ggtitle("North Florida") + 
+  labs(y = "", x = "", fill="") + 
+  scale_fill_manual(labels = c("Inside", "Outside"),values=c("gray30", "grey"))+ theme_classic()+
+  theme(title=element_text(size = 12),axis.text=element_text(size=10),axis.title=element_text(size=10), 
+        legend.text=element_text(size=10), plot.title = element_text(size=12)) + guides(fill=guide_legend("")) + scale_y_continuous(expand = c(0, 0), breaks = seq(0,4,1))+ geom_vline(xintercept = 3.5, linetype="dashed", 
+                color = "black", size=1.5)
+
+NF_CPUE_RP_Sample <- textGrob("N =", gp=gpar(fontsize=10))
+NF_CPUE_RP_2000 <- textGrob("(13|13)", gp=gpar(fontsize=10))
+NF_CPUE_RP_2003 <- textGrob("(9|9)", gp=gpar(fontsize=10))
+NF_CPUE_RP_2006<- textGrob("(5|5)", gp=gpar(fontsize=10))
+NF_CPUE_RP_2010<- textGrob("(47|44)", gp=gpar(fontsize=10))
+NF_CPUE_RP_2013<- textGrob("(72|69)", gp=gpar(fontsize=10))
+NF_CPUE_RP_2016<- textGrob("(58|58)", gp=gpar(fontsize=10))
+
+#Without NF-Pre
+
+NF_CPUE_RP_2000 <- textGrob("", gp=gpar(fontsize=10))
+NF_CPUE_RP_2003 <- textGrob("", gp=gpar(fontsize=10))
+NF_CPUE_RP_2006<- textGrob("", gp=gpar(fontsize=10))
+
+NF_CPUE_RP_SampleSize <- NF_CPUE_RP+theme(plot.margin = unit(c(1,1,1,1), "lines"))  + annotation_custom(NF_CPUE_RP_Sample,xmin=0.5,xmax=0.5,ymin=-1.25,ymax=-1.25)+annotation_custom(NF_CPUE_RP_2000,xmin=1,xmax=1,ymin=-1.25,ymax=-1.25)+ annotation_custom(NF_CPUE_RP_2003,xmin=2,xmax=2,ymin=-1.25,ymax=-1.25)+ annotation_custom(NF_CPUE_RP_2006,xmin=3,xmax=3,ymin=-1.25,ymax=-1.25)+ annotation_custom(NF_CPUE_RP_2010,xmin=4,xmax=4,ymin=-1.25,ymax=-1.25)+ annotation_custom(NF_CPUE_RP_2013,xmin=5,xmax=5,ymin=-1.25,ymax=-1.25)+ annotation_custom(NF_CPUE_RP_2016,xmin=6,xmax=6,ymin=-1.25,ymax=-1.25)+
+  coord_cartesian(clip = "off")
+
+
+NSC_CPUE_RP_SampleSize
+EdistoCPUE_RP_SampleSize
+NF_CPUE_RP_SampleSize
+
+library(ggpubr)
+
+CPUE_RP <- ggarrange(
+  NSC_CPUE_RP_SampleSize, EdistoCPUE_RP_SampleSize, NF_CPUE_RP_SampleSize,
+  common.legend = TRUE, legend = "top", ncol = 1, nrow = 3
+  )
+
+CPUE_RP_Final<- annotate_figure(CPUE_RP, bottom = text_grob("        Period\n",  size = 15), left = text_grob("\nStandardized Abundance of Red Porgy (+/- SE)", rot = 90, size = 15))
+
+ggsave("CPUE_RP_Final_WO_NF_Pre_revised.tiff", width = 169,  units = "mm")
+```
+
+```
+
