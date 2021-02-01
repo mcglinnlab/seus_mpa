@@ -62,7 +62,10 @@ Edisto_Abundance$Topten <- rowSums(Edisto_Abundance[,c(27, 30, 34, 42, 48,
                                                        55, 61, 63, 72, 76)])
 
 Edisto_Abundance$abu <- rowSums(Edisto_Abundance[ , 26:79])
-ED_AB_bin <- na.exclude(Edisto_Abundance[,c(3,10,12:13,16,17,18,21,23,24,80:82,84,85,86)])
+
+which(names(Edisto_Abundance) == "Pargus pagrus")
+
+ED_AB_bin <- na.exclude(Edisto_Abundance[,c(3,10,12:13,16,17,18,21,23,24,63,80:82,84,85,86)])
 ##
 
 NSC_Abundance$ManagedArea <- factor(NSC_Abundance$ManagedArea, levels = 
@@ -102,7 +105,7 @@ NSC_Abundance$Topten <- rowSums(NSC_Abundance[,c(28, 30, 33, 34, 42, 45, 51,
 
 NSC_Abundance$abu <- rowSums(NSC_Abundance[ , 27:83])
 
-NSC_AB_bin <- na.exclude(NSC_Abundance[,c(3,10,12:13,16,17,18,19,22,24,25,84:88)])
+NSC_AB_bin <- na.exclude(NSC_Abundance[,c(3,10,12:13,16,17,18,19,22,24,25,64,84:88)])
 
 
 ##
@@ -143,7 +146,7 @@ NF_Abundance$Topten <- rowSums(NF_Abundance[,c(27, 32, 38, 39, 53, 60, 62, 66, 6
 NF_Abundance$abu <- rowSums(NF_Abundance[ , 27:70])
 
 
-NF_AB_bin <- na.exclude(NF_Abundance[,c(3,10,12:13,16,17,18,19,22,24,25,71:75)])
+NF_AB_bin <- na.exclude(NF_Abundance[,c(3,10,12:13,16,17,18,19,22,24,25,62, 71:75)])
 
 # so sampling was low in NF prior to 2009
 NF_AB_bin <- NF_AB_bin[NF_AB_bin$Year > 2009, ]
@@ -181,27 +184,34 @@ ggplot(dat, aes(x = loc,  y = log2(Topten + 1))) +
 ggplot(dat, aes(x = loc,  y = log2(Topten + 1))) + 
   geom_boxplot(aes(color = reg)) + 
   facet_wrap(~time)
-# all fish -----
-ggplot(dat, aes(x = loc,  y = abu)) + 
+# red porgy -----
+ggplot(dat, aes(x = loc,  y = Pagrus.pagrus)) + 
   geom_boxplot(aes(color = loc))
-ggplot(dat, aes(x = loc,  y = abu)) + 
+ggplot(dat, aes(x = loc,  y = Pagrus.pagrus)) + 
   geom_boxplot(aes(color = loc))
-ggplot(dat, aes(x = loc,  y = abu)) + 
+ggplot(dat, aes(x = loc,  y = Pagrus.pagrus)) + 
   geom_boxplot(aes(color = reg)) + 
   facet_wrap(~time)
 ## with log2 + 1 transform
-ggplot(dat, aes(x = loc,  y = log2(abu + 1))) + 
+ggplot(dat, aes(x = loc,  y = log2(Pagrus.pagrus + 1))) + 
   geom_boxplot(aes(color = loc))
-ggplot(dat, aes(x = loc,  y = log2(abu + 1))) + 
+ggplot(dat, aes(x = loc,  y = log2(Pagrus.pagrus + 1))) + 
   geom_boxplot(aes(color = reg))
-ggplot(dat, aes(x = loc,  y = log2(abu + 1))) + 
+ggplot(dat, aes(x = loc,  y = log2(Pagrus.pagrus + 1))) + 
   geom_boxplot(aes(color = reg)) + 
   facet_wrap(~time)
 
 ## covariates included with both arithmetic and log2 + 1 abundance
-dat$Toptenl2 <- log2(dat$Topten + 1)
-dat$abul2 <- log2(dat$abu + 1)
-ggpairs(dat[ , c('Topten', 'Toptenl2','abu', 'SampleHr', 'Relief', 'SubstrateDensity', 'BiotaDensity',
+ggpairs(dat[ , c('Topten', 'Pagrus.pagrus', 'SampleHr', 'Relief', 'SubstrateDensity', 'BiotaDensity',
+                 'StationDepth', 'Temp')],
+        lower = list(continuous = "cor", combo = "box_no_facet", discrete = "count", na =
+    "na"),
+  upper = list(continuous = "points", combo = "facethist", discrete = "facetbar", na =
+    "na"))
+
+dat$logTopten <- log(dat$Topten + 1)
+dat$logRp <- log(dat$Pagrus.pagrus + 1)
+ggpairs(dat[ , c('logTopten','logRp', 'SampleHr', 'Relief', 'SubstrateDensity', 'BiotaDensity',
                  'StationDepth', 'Temp')],
         lower = list(continuous = "cor", combo = "box_no_facet", discrete = "count", na =
     "na"),
@@ -219,9 +229,21 @@ pseudo_r2 = function(glm_mod) {
     1 -  glm_mod$deviance / glm_mod$null.deviance
 }
 
-mod_gau <- glm(Toptenl2 ~ reg + loc + time + loc*time + 
+norm.loglike4 <- function(model, k, y) {
+  # function to calculate log likihood of gaussian model for log(abu + k) transformed data
+  #https://sakai.unc.edu/access/content/group/2842013b-58f5-4453-aa8d-3e01bacbfc3d/public/Ecol562_Spring2012/docs/lectures/lecture11.htm#checking
+  #MLE of sigma^2
+  sigma2 <- (sum(residuals(model)^2))/length(y)
+  # probability at y = 0 is calculated differently
+  prob <- ifelse(y==0, pnorm(log(y+k+.5), mean=predict(model), sd=sqrt(sigma2)), pnorm(log(y+k+.5), mean=predict(model), sd=sqrt(sigma2)) - pnorm(log(y+k-.5), mean=predict(model), sd=sqrt(sigma2)))
+  #calculate log-likelihood
+  loglike <- sum(log(prob))
+  loglike
+}
+
+mod_gau <- lm(log(Topten + 1) ~ reg + loc + time + loc*time + 
                         SampleHr + Relief + SubstrateDensity + BiotaDensity + 
-                        StationDepth + Temp, family = gaussian, data=dat)
+                        StationDepth + Temp, data=dat)
 mod_poi <- glm(Topten ~ reg + loc + time + loc*time + 
                         SampleHr + Relief + SubstrateDensity + BiotaDensity + 
                         StationDepth + Temp, family = poisson, data=dat)
@@ -232,95 +254,163 @@ mod_zip <- zeroinfl(Topten ~ reg + loc + time + loc*time +
                         SampleHr + Relief + SubstrateDensity + BiotaDensity + 
                         StationDepth + Temp | SampleHr + Temp, data=dat)
 
-# note AIC doen's make sense for log2 + 1 model because of change of 
-# response variable
+# we have to manually calculate AIC for the log(abu + 1) model
+LL_gau <- norm.loglike4(mod_gau, 1, dat$Topten)
+LL_gau
+AIC_gau <- -2 * LL_gau + 2 * mod_gau$rank
+
+
 AIC(mod_poi)
 AIC(mod_ngb)
 AIC(mod_zip)
+AIC_gau
 
-pseudo_r2(mod_gau)
-pseudo_r2(mod_poi)
-pseudo_r2(mod_ngb)
-pseudo_r2(mod_zip)
+summary(mod_ngb)
+Anova(mod_ngb, type = 3)
+anova(glm.nb(dat$Topten ~ 1), mod_ngb)
 
+# so it appears that neg binomial model is most supported zip model is next 
+# but it is a long way off in comparison. 
 
-
-
-# it appears the gaussian model with log2 + 1 transform is best fit according to AIC
+# let's check diagonstic plots 
 par(mfrow=c(2,2))
-plot(mod_gau)
-# better looking than the other models but still some drammatic violations in 
-# regression assumptions. The 
+plot(mod_ngb)
+# those look troublesome with divergence form normality and heteroscadistity
+
+# not sure if this is completely appropriate
+pseudo_r2(mod_ngb)
 
 # PO plot
 par(mfrow=c(1,1))
-plot(predict(mod_gau), dat$Toptenl2)
+plot(predict(mod_ngb, type = 'response'), dat$Topten)
 abline(a=0, b=1)
-lines(lowess(predict(mod_gau), dat$Toptenl2), col='red')
+lines(lowess(predict(mod_ngb, type = 'response'),
+             dat$Topten), col='red')
 
-par(mfrow=c(3,3))
-termplot(mod_gau, partial.resid = T, se = T)
+# this shows that there are a lot of very large abundances our model doesn't 
+# get close to capturing. The same is true for the other models as well. 
 
-summary(mod_gau)
-Anova(mod_gau, type = 3)
-
-## simplify approach further
-cov_mod <- glm(Toptenl2 ~ SampleHr + Relief + SubstrateDensity + BiotaDensity + 
-                       StationDepth + Temp, family = gaussian, data=dat)
-pseudo_r2(cov_mod)
-mpa_mod <- glm(residuals(cov_mod) ~ reg + loc + time + loc*time, data = dat)
-summary(mpa_mod)
-Anova(mpa_mod, type =3)
-pseudo_r2(mpa_mod)
-
-## least conservative approach
-mpa_mod <-  glm(Toptenl2 ~ reg + loc + time + loc*time, data = dat)
-summary(mpa_mod)
-Anova(mpa_mod, type =3)
-pseudo_r2(mpa_mod)
-
-# only about 1% diff than more conservative model
-par(mfrow=c(2,2))
-termplot(mpa_mod, partial.resid = T, se = T)
-
-
-# diagonstic plot
-#plot(predict(mod_zip), residuals(mod_zip))
-#lines(lowess(predict(mod_zip), residuals(mod_zip)), col = 'red')
-
-###
-mod_gau <- glm(abul2 ~ reg + loc + time + loc*time + 
-                        SampleHr + Relief + SubstrateDensity + BiotaDensity + 
-                        StationDepth + Temp, family = gaussian, data=dat)
-mod_poi <- glm(abu ~ reg + loc + time + loc*time + 
-                        SampleHr + Relief + SubstrateDensity + BiotaDensity + 
-                        StationDepth + Temp, family = poisson, data=dat)
-mod_ngb <- glm.nb(abu ~ reg + loc + time + loc*time + 
+# Red Porgy models ---------
+mod_gau_rp <- lm(log(Pagrus.pagrus + 1) ~ reg + loc + time + loc*time + 
                         SampleHr + Relief + SubstrateDensity + BiotaDensity + 
                         StationDepth + Temp, data=dat)
-mod_ngb <- glm(abu ~ reg + loc + time + loc*time + 
-                     SampleHr + Relief + SubstrateDensity + BiotaDensity + 
-                     StationDepth + Temp, family = negative.binomial, data=dat)
-mod_zip <- zeroinfl(abu ~ reg + loc + time + loc*time + 
+mod_poi_rp <- glm(Pagrus.pagrus ~ reg + loc + time + loc*time + 
+                        SampleHr + Relief + SubstrateDensity + BiotaDensity + 
+                        StationDepth + Temp, family = poisson, data=dat)
+mod_ngb_rp <- glm.nb(Pagrus.pagrus ~ reg + loc + time + loc*time + 
+                        SampleHr + Relief + SubstrateDensity + BiotaDensity + 
+                        StationDepth + Temp, data=dat)
+mod_zip_rp <- zeroinfl(Pagrus.pagrus ~ reg + loc + time + loc*time + 
                         SampleHr + Relief + SubstrateDensity + BiotaDensity + 
                         StationDepth + Temp | SampleHr + Temp, data=dat)
-AIC(mod_poi)
-AIC(mod_ngb)
-AIC(mod_zip)
 
-pseudo_r2(mod_gau)
-pseudo_r2(mod_poi)
-pseudo_r2(mod_ngb)
-pseudo_r2(mod_zip)
+# we have to manually calculate AIC for the log(abu + 1) model
+LL_gau_rp <- norm.loglike4(mod_gau_rp, 1, dat$Pagrus.pagrus)
+LL_gau_rp
+AIC_gau_rp <- -2 * LL_gau_rp + 2 * mod_gau_rp$rank
 
+
+AIC(mod_poi_rp)
+AIC(mod_ngb_rp)
+AIC(mod_zip_rp)
+AIC_gau_rp
+
+# negative binomial model is most supported here
+
+summary(mod_ngb_rp)
+Anova(mod_ngb_rp, type = 3)
+anova(glm.nb(dat$Pagrus.pagrus ~ 1), mod_ngb_rp)
+
+# let's check diagonstic plots 
+par(mfrow=c(2,2))
+plot(mod_ngb_rp)
+# those look troublesome with divergence form normality and heteroscadistity
+
+
+# not sure if this is completely appropriate
+pseudo_r2(mod_ngb_rp)
 
 # PO plot
 par(mfrow=c(1,1))
-plot(predict(mod_ngb), dat$abu)
+plot(predict(mod_ngb_rp, type = 'response'), dat$Pagrus.pagrus)
 abline(a=0, b=1)
-lines(lowess(predict(mod_poi), dat$abu), col='red')
+lines(lowess(predict(mod_ngb_rp, type = 'response'),
+             dat$Pagrus.pagrus), col='red')
 
 
-summary(mod_gau)
-pseudo_r2(mod_ngb)
-Anova(mod_gau, type = 3)
+# plot output of models ----------------------------------------------
+
+# this section needs to be improved
+# we need to decide to we want predictions of a minimal model without covariates
+# if not then we need to compute mean covariate at each grouping level and us
+# that to make abundance prediction
+
+newdata <- dat[ , c('reg', 'loc', 'time')] %>%
+               expand(reg, loc, time)
+
+pred_ngb <- predict(mod_ngb, newdata, se.fit = TRUE)
+
+dat_pred <- data.frame(newdata, mean = pred_ngb$fit, 
+                               se = pred_ngb$se.fit)
+
+g1<-ggplot(dat_pred, aes(x=interaction(loc,time), y=mean,
+                                            fill=factor(reg))) +
+    geom_bar(stat="identity", position=position_dodge(), width = 0.75) + 
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), 
+                position = position_dodge(.75), width = 0.2) +
+  scale_fill_manual(labels = c("Northern South Carolina", "Edisto", "North Florida"),
+                    values=c("grey30", "grey60", "grey90"))+
+  coord_cartesian(ylim = c(0, 10)) +
+  annotate("text", x = 1:4, y = - 0.1,
+           label = rep(c("Outside", "Inside"), 2)) +
+  annotate("text", c(1.5, 3.5), y = - 0.3, label = c("Before", "After")) +
+  theme_classic() +
+  theme(plot.margin = unit(c(1, 1, 4, 1), "lines"),
+       axis.title.x = element_blank(),
+       axis.text.x = element_blank(), 
+       axis.text=element_text(size=12))+
+  guides(fill=guide_legend("")) + 
+  scale_y_continuous(expand = c(0, 0)) 
+
+g2 <- ggplot_gtable(ggplot_build(g1))
+g2$layout$clip[g2$layout$name == "panel"] <- "off"
+grid.draw(g2)
+
+
+
+
+### All Topten
+All_final_abundance_summary <- ddply(dat, c("reg", "loc", "time"), summarise,
+               N    = length(Topten),
+               mean = mean((Topten), na.rm=TRUE),
+               sd   = sd((Topten), na.rm =TRUE),
+               se   = sd / sqrt(N)
+)
+
+All_final_abundance_summary$pred <- dat_pred$mean
+All_final_abundance_summary$predsd <- dat_pred$se
+
+dodge <- position_dodge(width=0.9) 
+
+g3<-ggplot(All_final_abundance_summary, aes(x=interaction(loc,time), y=mean, fill=factor(reg))) + geom_bar(stat="identity", position=position_dodge(), width = 0.75)+ 
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), position = position_dodge(.75), width = 0.2)+
+  scale_fill_manual(labels = c("Northern South Carolina", "Edisto", "North Florida"),values=c("grey30", "grey60", "grey90"))+
+  coord_cartesian(ylim = c(0, 10)) +
+  annotate("text", x = 1:4, y = - 0.1,
+           label = rep(c("Outside", "Inside"), 2)) +
+  annotate("text", c(1.5, 3.5), y = - 0.3, label = c("Before", "After")) +
+  theme_classic() +
+  theme(plot.margin = unit(c(1, 1, 4, 1), "lines"),
+       axis.title.x = element_blank(),
+       axis.text.x = element_blank(), 
+       axis.text=element_text(size=12))+
+  guides(fill=guide_legend("")) + 
+  scale_y_continuous(expand = c(0, 0)) 
+
+g4 <- ggplot_gtable(ggplot_build(g3))
+g4$layout$clip[g2$layout$name == "panel"] <- "off"
+grid.draw(g4)
+
+## Red Porgy graphics ------------------------------------------
+
+
